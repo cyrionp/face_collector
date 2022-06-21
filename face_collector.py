@@ -1,6 +1,8 @@
 import argparse
 import cv2
 import os
+import sys
+import numpy as np
 from PIL import Image
 
 from bing_images import bing
@@ -9,30 +11,36 @@ from mtcnn import MTCNN
 ap = argparse.ArgumentParser()
 ap.add_argument("-q", "--query", required=True,
                 help="string to be searched")
-ap.add_argument("-l", "--limit", required=False, default=100,
+ap.add_argument("-l", "--limit", required=False, type=int, default=100,
                 help="(optional, default 100) number of images to download")
-ap.add_argument("-s", "--size", required=False, default=(96, 96),
-                help="output image size [e.g. (100, 100)]")
-ap.add_argument("-t", "--thread", required=True,
-                help="thread amount")
+ap.add_argument("-a", "--alignment", required=False, type=str, default='n',
+                help="(optional, default 'n') face alignment (y/n)")
+ap.add_argument("-g", "--gray", required=False, type=str, default='n',
+                help="(optional, default 'n') convert images to gray (y/n)")
+ap.add_argument("-s", "--size", required=False,
+                help="(optional) size to convert 'w, h'")
 args = vars(ap.parse_args())
+
 
 output_dir = "downloaded/" + args["query"]
 extracted_dir = "extracted/" + args["query"]
 images_list = []
+resizing_lengths = (int(args["size"].split(",")[0]), int(args["size"].split(",")[1]))
 detector = MTCNN()
 
 
-def download_images():
-    global images_list, output_dir
+def check_arguments():
+    if args["alignment"] == "y" or args["alignment"] == "n":
+        pass
+    else:
+        print("[ERROR] Face alignment argument should be 'y' or 'n'\n[INFO] Exiting...")
+        sys.exit(0)
 
-    try:
-        print("Initializing to download..")
-        bing.download_images(args["query"], int(args["limit"]), output_dir, pool_size=10)
-        print("[INFO] Downloading is finished")
-
-    except OSError as error:
-        print("[ERROR] Download error! " + str(error))
+    if args["gray"] == "y" or args["gray"] == "n":
+        pass
+    else:
+        print("[ERROR] Convert to gray argument should be 'y' or 'n' [INFO] Exiting...")
+        sys.exit(0)
 
 
 def delete_image(path):
@@ -64,6 +72,37 @@ def rotate_image(path, angle):
         rotated.save(path)
     except OSError as error:
         print("[ERROR] Face rotating error! " + str(error))
+
+
+def convert_to_gray(image_path):
+    try:
+        image = cv2.imread(image_path)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        cv2.imwrite(image_path, gray)
+    except OSError as error:
+        print("[ERROR] Color converting error! " + str(error))
+
+
+def resize_image(image_path):
+    # resizing_lengths = (96, 96)
+    try:
+        image = cv2.imread(image_path)
+        resized_image = cv2.resize(image, resizing_lengths, interpolation=cv2.INTER_LINEAR)
+        cv2.imwrite(image_path, resized_image)
+    except OSError as error:
+        print("[ERROR] Image resizing error! " + str(error))
+
+
+def download_images():
+    global images_list, output_dir
+
+    try:
+        print("Initializing to download..")
+        bing.download_images(args["query"], int(args["limit"]), output_dir, pool_size=10)
+        print("[INFO] Downloading is finished")
+
+    except OSError as error:
+        print("[ERROR] Download error! " + str(error))
 
 
 def detect_faces(image):
@@ -136,8 +175,15 @@ def extract_faces():
             if len(faces_list) > 0:
                 for face in faces_list:
                     cv2.imwrite(face, faces_dictionary[face]["image"])
-                    angle = faces_dictionary[face]['angle']
-                    rotate_image(face, angle)
+                    if args["alignment"] == "y":
+                        angle = faces_dictionary[face]['angle']
+                        rotate_image(face, angle)
+
+                    if args["gray"] == "y":
+                        convert_to_gray(face)
+
+                    if args["size"] != "":
+                        resize_image(face)
 
         elif image_path.lower().endswith(".gif"):
             delete_image(image_path)
@@ -164,6 +210,7 @@ def verify_faces():
                     cv2.imwrite(face_path, detected_face)
 
 
+check_arguments()
 download_images()
 extract_faces()
 delete_blurry_images()
